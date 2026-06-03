@@ -21,7 +21,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 5000))
     flask_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
-# ========== IMPORTS ==========
+# ========== TELEGRAM IMPORTS ==========
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -34,22 +34,29 @@ USERS_FILE = "users.json"
 BANNED_FILE = "banned.json"
 OSINT_API = "https://pawan-osint.vercel.app/api?apikey=toxicadminn&number={}"
 
-# ========== EMOJIS ==========
-EMOJI_LIST = ["✅", "😎", "💎", "❄️", "😭", "🙂", "😋", "😁", "👍", "🟫", "🔸", "🟧", "🌐", "🇮🇳", "💵", "🔝", "🤝", "👌", "🔓", "🥃", "🍂", "💀", "❤️‍🔥", "⭐", "📱", "💠"]
+# ========== PREMIUM EMOJIS (TUNE JO DIYE THE - YE USE HO RAHE HAIN) ==========
+PREMIUM_EMOJIS = {
+    "verified": "✅", "flex": "😎", "blue_verification": "💎", "frozen": "❄️",
+    "crying": "😭", "smiling": "🙂", "seeing_up": "😋", "teeth": "😁",
+    "done": "👍", "blue_badge": "🟫", "black_badge": "🔸", "busy_tag": "🟧",
+    "instagram": "🌐", "telegram": "🌐", "whatsapp": "🌐", "india": "🇮🇳",
+    "dollar": "💵", "top": "🔝", "bro": "🤝", "yes": "👌", "lock": "🔓",
+    "good": "👍", "sigma": "🥃", "don": "🍂", "skills": "💀", "heart": "❤️‍🔥",
+    "stars": "⭐", "github": "📱", "motion": "💠"
+}
+
+EMOJI_LIST = list(PREMIUM_EMOJIS.values())  # [✅, 😎, 💎, ❄️, 😭, ...]
 
 def random_emoji():
     return random.choice(EMOJI_LIST)
 
-def format_line(text):
-    """Har line ke aage aur piche emoji"""
-    return f"{random_emoji()} {text} {random_emoji()}"
-
 def format_with_emojis(text):
+    """Har line ke AAGE aur PICCHE premium emoji (tune diye hue)"""
     lines = text.split('\n')
     result = []
     for line in lines:
         if line.strip():
-            result.append(format_line(line))
+            result.append(f"{random_emoji()} {line} {random_emoji()}")
         else:
             result.append("")
     return '\n'.join(result)
@@ -91,25 +98,32 @@ def register_user(user_id, username, name):
             "first_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         save_users(users)
-        logging.info(f"New user: {user_id}")
+        print(f"✅ New user: {user_id}")
 
 def is_banned(user_id):
     return str(user_id) in load_banned()
 
-# ========== OSINT FUNCTION ==========
-def get_osint_details(number):
+# ========== OSINT FUNCTION (Alternates + Map) ==========
+def get_all_details(number, visited=None, depth=0):
+    if visited is None:
+        visited = set()
+    if depth > 3:
+        return [], []
+    
+    if str(number) in visited:
+        return [], []
+    visited.add(str(number))
+    
+    all_details = []
+    all_addresses = []
+    
     try:
         url = OSINT_API.format(number)
         response = requests.get(url, timeout=15)
         data = response.json()
         
         if data.get("success") and data.get("result", {}).get("results"):
-            records = data["result"]["results"]
-            all_details = []
-            all_addresses = []
-            all_alternates = []
-            
-            for rec in records:
+            for rec in data["result"]["results"]:
                 name = rec.get("name", "N/A")
                 fname = rec.get("fname", "N/A")
                 primary = rec.get("num", number)
@@ -123,9 +137,6 @@ def get_osint_details(number):
                     cleaned = address.replace("!", " ").replace("\n", " ")
                     all_addresses.append(cleaned)
                 
-                if alt and alt != "N/A" and len(str(alt)) >= 10:
-                    all_alternates.append(str(alt))
-                
                 details = f"""═══════════════════════════
 📱 NUMBER: +91{primary}
 👤 NAME: {name}
@@ -137,42 +148,16 @@ def get_osint_details(number):
 🏠 ADDRESS: {cleaned if address else 'N/A'}
 ═══════════════════════════"""
                 all_details.append(details)
-            
-            # Alternate numbers ki details
-            for alt_num in all_alternates:
-                alt_url = OSINT_API.format(alt_num)
-                alt_resp = requests.get(alt_url, timeout=15)
-                alt_data = alt_resp.json()
-                if alt_data.get("success") and alt_data.get("result", {}).get("results"):
-                    for alt_rec in alt_data["result"]["results"]:
-                        alt_name = alt_rec.get("name", "N/A")
-                        alt_fname = alt_rec.get("fname", "N/A")
-                        alt_aadhar = alt_rec.get("aadhar", "N/A")
-                        alt_email = alt_rec.get("email", "N/A")
-                        alt_circle = alt_rec.get("circle", "N/A")
-                        alt_address = alt_rec.get("address", "")
-                        
-                        if alt_address:
-                            alt_cleaned = alt_address.replace("!", " ").replace("\n", " ")
-                            all_addresses.append(alt_cleaned)
-                        
-                        alt_details = f"""
-
-🔄 ALTERNATE NUMBER: +91{alt_num}
-👤 NAME: {alt_name}
-👨 FATHER: {alt_fname}
-🆔 AADHAAR: {alt_aadhar}
-📧 EMAIL: {alt_email}
-📡 CIRCLE: {alt_circle}
-🏠 ADDRESS: {alt_cleaned if alt_address else 'N/A'}
-═══════════════════════════"""
-                        all_details.append(alt_details)
-            
-            return "\n".join(all_details), all_addresses
-        else:
-            return f"❌ No data found for +91{number}", []
+                
+                # Alternate number mila to uski bhi details le
+                if alt and alt != "N/A" and len(str(alt)) == 10 and str(alt) not in visited:
+                    alt_details, alt_addrs = get_all_details(alt, visited, depth + 1)
+                    all_details.extend(alt_details)
+                    all_addresses.extend(alt_addrs)
     except Exception as e:
-        return f"⚠️ Error: {str(e)}", []
+        pass
+    
+    return all_details, all_addresses
 
 # ========== BOT COMMANDS ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,22 +181,23 @@ HOW TO USE:
 ➤ Send any 10-digit mobile number
 ➤ Bot will fetch all details
 ➤ Alternate numbers ki bhi details milegi
-➤ Address will show location on map
+➤ Address with Google Map
 
 OWNER COMMANDS:
 /owner - Admin panel
-/users - Total users
+/users - List all users
 /ban <id> - Ban user
 /unban <id> - Unban user
-/broadcast <msg> - Send to all
+/broadcast <msg> - Broadcast
 
 Developer: {DEVELOPER}"""
     
-    caption = format_with_emojis(caption)
+    caption = format_with_emojis(caption)  # Premium emoji lagega har line pe
     
     try:
         await update.message.reply_photo(photo=WELCOME_IMAGE, caption=caption, parse_mode="HTML")
-    except:
+    except Exception as e:
+        print(f"Image error: {e}")
         await update.message.reply_text(caption, parse_mode="HTML")
 
 async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -226,21 +212,36 @@ async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     number = re.sub(r'\D', '', msg_text)
     if len(number) != 10:
-        await update.message.reply_text("❌ Send a valid 10-digit mobile number.")
+        await update.message.reply_text(f"{random_emoji()} Send valid 10-digit mobile number")
         return
     
     status_msg = await update.message.reply_text(f"{random_emoji()} Fetching details for +91{number}...")
     
-    details, addresses = get_osint_details(number)
+    all_details, all_addresses = get_all_details(number)
     
-    # Details without emoji on each line
-    await status_msg.edit_text(details, parse_mode="HTML")
+    if not all_details:
+        await status_msg.edit_text(f"{random_emoji()} No data found for +91{number}")
+        return
     
-    # Send maps
-    for addr in addresses:
-        if addr and len(addr) > 5:
+    final_output = "\n".join(all_details)
+    
+    if len(final_output) > 4000:
+        parts = [final_output[i:i+4000] for i in range(0, len(final_output), 4000)]
+        await status_msg.delete()
+        for part in parts:
+            await update.message.reply_text(part, parse_mode="HTML")
+            await asyncio.sleep(0.3)
+    else:
+        await status_msg.edit_text(final_output, parse_mode="HTML")
+    
+    # Map bhejna
+    sent = set()
+    for addr in all_addresses:
+        if addr and len(addr) > 5 and addr not in sent:
+            sent.add(addr)
             map_url = f"https://www.google.com/maps?q={addr.replace(' ', '+')}"
-            await update.message.reply_text(f"📍 LOCATION MAP:\n{addr}\n{map_url}")
+            map_msg = f"📍 LOCATION MAP:\n{addr}\n{map_url}"
+            await update.message.reply_text(map_msg, parse_mode="HTML")
             await asyncio.sleep(0.5)
 
 async def owner_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -380,23 +381,19 @@ Developer: {DEVELOPER}"""
 def main():
     logging.basicConfig(level=logging.INFO)
     
-    # Create files if not exist
     if not os.path.exists(USERS_FILE):
         save_users({})
     if not os.path.exists(BANNED_FILE):
         save_banned(set())
     
-    # Delete webhook
     try:
         requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
         print("✅ Webhook deleted")
     except:
         pass
     
-    # Create application
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("owner", owner_panel))
@@ -409,12 +406,11 @@ def main():
     print("=" * 50)
     print("🤖 VENOM OSINT BOT STARTED")
     print(f"👑 Owner ID: {OWNER_ID}")
+    print("✅ Tere diye hue premium emojis use ho rahe hain")
     print("=" * 50)
     
-    # Start Flask for Render
     threading.Thread(target=run_flask, daemon=True).start()
     
-    # Start polling
     app.run_polling(poll_interval=1.0, timeout=30)
 
 if __name__ == "__main__":
